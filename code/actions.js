@@ -1,116 +1,73 @@
+const r = require('ramda')
 var async = require('async');
-var request = require('request');
+var request = require('request-promise');
 var cheerio = require("cheerio");
-var cityIbge = require('../data/ibge.js');
+const Promise = require('bluebird')
+
 var Converter = require("csvtojson").Converter;
 var converter = new Converter({
 	delimiter: ';'
 });
 
-var getCnesData = function() {
-	return new Promise(function(resolve, reject) {
-		converter.fromFile("./data/cnes.csv", function(err, clinics) {
-			if (err) throw new Error('Could not convert cnes.csv to json!');
-			resolve(clinics);
-		});
-	});
+function lineToJSON(line) {
+  const header = [
+    'cnes', 'estabelecimento', 'municipio', 'cnpj', 'cnpjMnatenedora',
+  ]
+  const arr = line.split(';')
+  return r.zipObj(header, arr)
 }
 
-var getCityCode = function(clinics) {
-	return new Promise(function(resolve, reject) {
-		resolve(clinics.map(function(clinic) {
-			clinic.municipioIbge = cityIbge[clinic.municipio.trim()];
-			return clinic;
-		}));
-	});
+function getClinicsData(clinic) {
+  return Promise.all([
+    requestClinicRegister(clinic),
+    requestClinicLocation(clinic),
+    requestClinicProfessionals(clinic),
+  ])
+    .then(([register, location, professionals]) => {
+      writeToMongo(r.merge(clinic, {
+        clinicRegister: register,
+        clinicLocation: location,
+        clinicProfessionals: professionals,
+      }))
+    })
 }
 
-var getClinicsData = function(clinics) {
-	return new Promise(function(resolve, reject) {
-		var counter = 18874;
-		async.eachSeries(clinics, function(clinic, callback) {
-			async.parallel([
-				function(cb) {
-					requestClinicRegister(clinic.cnes, clinic.municipioIbge).then(function(clinicRegister) {
-						cb(null, clinicRegister);
-					});
-				},
-				function(cb) {
-					requestClinicLocation(clinic.cnes, clinic.municipioIbge).then(function(clinicLocation) {
-						cb(null, clinicLocation);
-					});
-				},
-				function(cb) {
-					requestClinicProfessionals(clinic.cnes, clinic.municipioIbge).then(function(clinicProfessionals) {
-						cb(null, clinicProfessionals);
-					});
-				}
-			], function(err, results) {
-				if (err) throw new Error('Error in requests: ' + err);
-				clinic.clinicRegister = results[0];
-				clinic.clinicLocation = results[1];
-				clinic.clinicProfessionals = results[2];
-				writeToMongo(clinic);
-				console.log(counter++);
-				callback();
-			});
-		}, function(err) {
-			resolve(clinics);
-		});
-	});
+var requestClinicRegister = function({ cnes, municipioIbge }) {
+  return request({
+    uri: "http://cnes2.datasus.gov.br/Exibe_Ficha_Estabelecimento.asp?VCo_Unidade=" + municipioIbge + cnes,
+  })
+    .then(body => {
+      var $ = cheerio.load(body);
+      return validateClinicDom($)
+        .then(buildClinicObject)
+    })
+    .catch(err => { throw new Error('Could not get clinic register') })
 }
 
-
-
-var requestClinicRegister = function(clinicCnes, clinicCityIbge) {
-	return new Promise(function(resolve, reject) {
-		request({
-			uri: "http://cnes2.datasus.gov.br/Exibe_Ficha_Estabelecimento.asp?VCo_Unidade=" + clinicCityIbge + clinicCnes
-		}, function(err, res, body) {
-			if (!err) {
+var requestClinicLocation = function({ cnes, municipioIbge }) {
+  return request({
+			uri: "http://cnes2.datasus.gov.br/geo.asp?VUnidade=" + municipioIbge + cnes,
+      json: true,
+  })
+    .then(body => {
 				var $ = cheerio.load(body);
-				validateClinicDom($).then(function($) {
-					return buildClinicObject($);
-				}).then(function(clinicRegister) {
-					resolve(clinicRegister);
-				});
-			} else throw new Error ('Could not request clinic register ' + err);
-		});
-	});
-}
-
-var requestClinicLocation = function(clinicCnes, clinicCityIbge) {
-	return new Promise(function(resolve, reject) {
-		request({
-			uri: "http://cnes2.datasus.gov.br/geo.asp?VUnidade=" + clinicCityIbge + clinicCnes
-		}, function(err, res, body) {
-			if (!err) {
-				var $ = cheerio.load(body);
-				var clinicLocation = {
+				return {
 					lat: $('[name="latitude"]').attr('value'),
 					lon: $('[name="longitude"]').attr('value')
 				}
-				resolve(clinicLocation);
-			} else {'Could not request clinic location ' + err};
-		});
-	});
+    })
 }
 
-var requestClinicProfessionals = function(clinicCnes, clinicCityIbge) {
-	return new Promise(function(resolve, reject) {
-		request({
-			uri: "http://cnes2.datasus.gov.br/Mod_Profissional.asp?VCo_Unidade=" + clinicCityIbge + clinicCnes
-		}, function(err, res, body) {
-			if (!err) {
-				var $ = cheerio.load(body);
-				validateClinicDom($).then(function($) {
-					return buildProfessionalsObject($);
-				}).then(function(clinicProfessionals) {
-					resolve(clinicProfessionals);
-				});
-			} else throw new Error ('Could not request professionals :' + err);
-		});
-	});
+var requestClinicProfessionals = function({ cnes, municipioIbge }) {
+  return request({
+    uri: "http://cnes2.datasus.gov.br/Mod_Profissional.asp?VCo_Unidade=" + municipioIbge + cnes,
+    json: true,
+  })
+    .then(body => {
+      var $ = cheerio.load(body);
+      return validateClinicDom($)
+        .then(buildProfessionalsObject)
+    })
 }
 
 var writeToMongo = function(clinic) {
@@ -293,7 +250,6 @@ var buildProfessionalsObject = function($) {
 
 
 module.exports = {
-	getCnesData: getCnesData,
-	getCityCode: getCityCode,
-	getClinicsData: getClinicsData
+  lineToJSON,
+	getClinicsData,
 }

@@ -1,17 +1,24 @@
-var crawler = function(callback) {
-	var actions = require('./actions.js');
+const readline = require('line-reader')
+const r = require('ramda')
 
+const actions = require('./actions.js');
+const cityIbge = require('../data/ibge.js');
 
-	actions.getCnesData().then(function(clinics) {
-		return actions.getCityCode(clinics);
-	}).then(function(clinics){
-			return actions.getClinicsData(clinics);
-	}).then(function(clinics){
-		console.log('finished');
-		callback();
-	}).catch(function(e) {
-		console.log(e);
-	});
+const crawler = function(callback) {
+  let cnt = 0
+
+  readline.eachLine('./data/cnes.csv', (line, last, cb) => {
+    let json = actions.lineToJSON(line)
+    json.municipioIbge = cityIbge[json.municipio.trim()]
+
+    actions.getClinicsData(json)
+      .then(() => {
+        console.log(cnt++)
+        cb()
+      })
+      .catch(err => console.log(err))
+  })
+
 }
 
 module.exports = crawler;

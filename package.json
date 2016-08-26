@@ -11,9 +11,13 @@
   "license": "ISC",
   "dependencies": {
     "async": "^2.0.1",
+    "bluebird": "^3.4.3",
     "cheerio": "^0.22.0",
     "csvtojson": "^1.0.0",
+    "line-reader": "^0.4.0",
     "mongodb": "^2.2.8",
-    "request": "^2.74.0"
+    "ramda": "^0.22.1",
+    "request": "^2.74.0",
+    "request-promise": "^4.1.1"
   }
 }
