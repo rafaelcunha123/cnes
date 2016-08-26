@@ -1,0 +1,19 @@
+{
+  "name": "cnes",
+  "version": "1.0.0",
+  "description": "Crawler CNES database",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "rdacun",
+  "license": "ISC",
+  "dependencies": {
+    "async": "^2.0.1",
+    "cheerio": "^0.22.0",
+    "csvtojson": "^1.0.0",
+    "mongodb": "^2.2.8",
+    "request": "^2.74.0"
+  }
+}
